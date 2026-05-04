@@ -1,54 +1,89 @@
 services:
   api:
-    image: ghcr.io/wxradarexplore/sidarma-api:${SIDARMA_API_IMAGE_TAG:-20260504}
+    image: ghcr.io/wxradarexplore/sidarma-api:${SIDARMA_IMAGE_TAG:-20260503}
     container_name: sidarma-api
     restart: unless-stopped
+    pull_policy: if_not_present
+    logging:
+      driver: json-file
+      options:
+        max-size: "${DOCKER_LOG_MAX_SIZE:-10m}"
+        max-file: "${DOCKER_LOG_MAX_FILE:-5}"
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     environment:
       MONGO_HOST: ${MONGO_HOST}
       MONGO_PORT: ${MONGO_PORT}
       MONGO_DB: ${MONGO_DB}
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      MONGO_USER: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_ROTATION_SIZE: "${LOG_ROTATION_SIZE:-10 MB}"
+      LOG_RETENTION_COUNT: "${LOG_RETENTION_COUNT:-5}"
+      LOG_COMPRESSION: "${LOG_COMPRESSION:-gz}"
       NODE_ID: ${NODE_ID}
       NODE_NAME: ${NODE_NAME}
       NODE_LABEL: ${NODE_LABEL}
       NODE_HOSTNAME: ${NODE_HOSTNAME}
-      NODE_ALIASES: ${NODE_ALIASES}
       NODE_ROLES: ${NODE_ROLES}
+      NODE_ALIASES: ${NODE_ALIASES}
+      SCHEDULER_IDENTITY: ${SCHEDULER_IDENTITY}
       CLUSTER_API_LOCAL_URL: ${CLUSTER_API_LOCAL_URL}
       CLUSTER_PEERS_JSON: ${CLUSTER_PEERS_JSON}
       WEB_API_SHARED_TOKEN: ${WEB_API_SHARED_TOKEN}
       CLUSTER_NODE_ADMIN_ROLES: ${CLUSTER_NODE_ADMIN_ROLES}
       LOG_API_PATH: ${LOG_API_PATH}
+      LOG_WORKER_PATH: ${LOG_WORKER_PATH}
+      LOG_SCHEDULER_PATH: ${LOG_SCHEDULER_PATH}
     volumes:
       - ./logs:/var/log/sidarma
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   worker:
-    image: ghcr.io/wxradarexplore/sidarma-worker:${SIDARMA_WORKER_IMAGE_TAG:-20260504rev01}
+    image: ghcr.io/wxradarexplore/sidarma-worker:${SIDARMA_IMAGE_TAG:-20260503}
     restart: unless-stopped
+    pull_policy: if_not_present
+    logging:
+      driver: json-file
+      options:
+        max-size: "${DOCKER_LOG_MAX_SIZE:-10m}"
+        max-file: "${DOCKER_LOG_MAX_FILE:-5}"
     environment:
       MONGO_HOST: ${MONGO_HOST}
       MONGO_PORT: ${MONGO_PORT}
       MONGO_DB: ${MONGO_DB}
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      MONGO_USER: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      LEASE_SECONDS: ${LEASE_SECONDS:-300}
+      POLL_SECONDS: ${POLL_SECONDS:-5}
+      SITE_CONFIG_DIR: /app/config
+      DATA_ROOT: /data
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_ROTATION_SIZE: "${LOG_ROTATION_SIZE:-10 MB}"
+      LOG_RETENTION_COUNT: "${LOG_RETENTION_COUNT:-5}"
+      LOG_COMPRESSION: "${LOG_COMPRESSION:-gz}"
+      WORKER_API_BASE: http://api:8000
+      WORKER_CONFIG_SOURCE: api_then_file
       NODE_ID: ${NODE_ID}
       NODE_NAME: ${NODE_NAME}
       NODE_LABEL: ${NODE_LABEL}
       NODE_HOSTNAME: ${NODE_HOSTNAME}
       NODE_ALIASES: ${NODE_ALIASES}
-      NODE_ROLES: ${NODE_ROLES}
       LOG_WORKER_PATH: ${LOG_WORKER_PATH}
-      MINIO_UPLOAD_ENABLED: ${MINIO_UPLOAD_ENABLED}
+      WORKER_CONFIG_TIMEOUT: ${WORKER_CONFIG_TIMEOUT:-10}
+      CONNECTIVITY_FAILOVER_COOLDOWN_SECONDS: ${CONNECTIVITY_FAILOVER_COOLDOWN_SECONDS:-120}
+      WORKER_HEARTBEAT_FRESH_SECONDS: ${WORKER_HEARTBEAT_FRESH_SECONDS:-90}
+      JOB_CLAIM_SCAN_LIMIT: ${JOB_CLAIM_SCAN_LIMIT:-50}
+      MINIO_UPLOAD_ENABLED: ${MINIO_UPLOAD_ENABLED:-true}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       MINIO_BUCKET: ${MINIO_BUCKET}
-      MINIO_SECURE: ${MINIO_SECURE}
-      NODE_REGISTRY_CACHE_TTL_SECONDS: ${NODE_REGISTRY_CACHE_TTL_SECONDS:-5}
-      WORKER_IDLE_CUTOFF_SECONDS: ${WORKER_IDLE_CUTOFF_SECONDS:-90}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
     volumes:
       - ./config:/app/config:ro
       - ./runtime:/data
@@ -59,29 +94,47 @@ services:
       - ${RAINBOW_ONLINE_PATH}:/rainbow-online
       - ${RAINBOW_RAWDATA_PATH}:/rainbow-rawdata
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
   scheduler:
-    image: ghcr.io/wxradarexplore/sidarma-scheduler:${SIDARMA_SCHEDULER_IMAGE_TAG:-20260503}
+    image: ghcr.io/wxradarexplore/sidarma-scheduler:${SIDARMA_IMAGE_TAG:-20260503}
     container_name: sidarma-scheduler
     restart: unless-stopped
+    pull_policy: if_not_present
+    logging:
+      driver: json-file
+      options:
+        max-size: "${DOCKER_LOG_MAX_SIZE:-10m}"
+        max-file: "${DOCKER_LOG_MAX_FILE:-5}"
     environment:
       API_BASE: http://api:8000
+      SCHEDULE_FILE: /app/schedule/acquisition_schedule.json
+      REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-10}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_ROTATION_SIZE: "${LOG_ROTATION_SIZE:-10 MB}"
+      LOG_RETENTION_COUNT: "${LOG_RETENTION_COUNT:-5}"
+      LOG_COMPRESSION: "${LOG_COMPRESSION:-gz}"
       MONGO_HOST: ${MONGO_HOST}
       MONGO_PORT: ${MONGO_PORT}
       MONGO_DB: ${MONGO_DB}
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      MONGO_USER: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      SCHEDULER_SCHEDULE_SOURCE: api_then_file
+      SCHEDULER_POLL_SECONDS: ${SCHEDULER_POLL_SECONDS:-30}
+      SCHEDULER_LEASE_ID: ${SCHEDULER_LEASE_ID:-acquisition_scheduler}
+      SCHEDULER_LEASE_SECONDS: ${SCHEDULER_LEASE_SECONDS:-30}
+      SCHEDULER_IDLE_SLEEP: ${SCHEDULER_IDLE_SLEEP:-5}
       NODE_ID: ${NODE_ID}
       NODE_NAME: ${NODE_NAME}
       NODE_LABEL: ${NODE_LABEL}
       NODE_HOSTNAME: ${NODE_HOSTNAME}
       NODE_ALIASES: ${NODE_ALIASES}
-      NODE_ROLES: ${NODE_ROLES}
       SCHEDULER_IDENTITY: ${SCHEDULER_IDENTITY}
       LOG_SCHEDULER_PATH: ${LOG_SCHEDULER_PATH}
     volumes:
       - ./schedule:/app/schedule:ro
       - ./logs:/var/log/sidarma
     depends_on:
-      - api
+      api:
+        condition: service_healthy
